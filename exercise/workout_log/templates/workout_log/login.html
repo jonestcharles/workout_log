@@ -1,0 +1,31 @@
+{% extends "workout_log/layout.html" %}
+
+{% block title %}
+    Login
+{% endblock %}
+
+{% block body %}
+{% if message %}
+    <div class="m-3 alert alert-info col-sm-2" role="alert">
+        {{ message }}
+    </div>
+{% endif %}
+    <form action="{% url 'login' %}" method="post">
+        {% csrf_token %}
+        <label for="un">
+            Username
+        </label>
+        <input name="username" type="text" id="un">
+        <label for="pw">
+            Password
+        </label>
+        <input name="password" type="password" id="pw">
+        <input type="submit" value="Login">
+    </form>
+    <p>
+        Don't have an account?
+        <a href="{% url 'register' %}">
+            Register
+        </a>
+    </p>
+{% endblock %}

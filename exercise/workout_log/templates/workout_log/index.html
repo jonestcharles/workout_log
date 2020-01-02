@@ -1,0 +1,232 @@
+{% extends "workout_log/layout.html" %}
+
+{% block title %}
+Home
+{% endblock %}
+
+{% block nav %}
+    <ul class="navbar-nav mr-auto">
+        <li class="nav-item">
+            <a href="{% url 'logout' %}" class="nav-link" style="color:black;">
+                Logout
+            </a>
+        </li>
+    </ul>
+{% endblock %}
+{% block body %}
+    {% if message %}
+        <div class="alert alert-danger m-3 col-sm-2" role="alert">
+            {{ message }}
+        </div>
+    {% endif %}
+    <form action="{% url 'index' %}" method="POST" id="upload-workout" class="ml-3 p-1">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <input type="submit" value="Upload">
+    </form>
+    <form action="{% url 'update' %}" method="POST" id="update-data" class="ml-3 mt-3 p-1">
+        {% csrf_token %}
+        <label for="exercise-select">
+            Select Exercise Type: 
+        </label>
+        <select id="exercise-select" name="exercise-type">
+            <option value="all">
+                All    
+            </option>
+            <option value="Bike">
+                Bike
+            </option>
+            <option value="Swim">
+                Swim
+            </option>
+            <option value="Run">
+                Run
+            </option>
+        </select>
+        <button>
+            Refresh
+        </button>
+    </form>
+    <svg class="chart"></svg>
+    {% if workouts %}
+        <ul class="list-group">
+            {% for workout in workouts %}
+                <li class="list-group-item">
+                    {{ workout }}
+                </li>
+            {% endfor %}
+        </ul>
+        <p class="m-3 p-1">
+            Download CSV
+        </p>
+        <form action="{% url 'export' %}" method="post" id="export-workouts"class="ml-3 mt-3 p-1">
+            {% csrf_token %}
+            <button type="submit"class="btn btn-primary">
+                Download
+            </button>
+        </form>
+    {% endif %}
+    <script type="text/javascript">
+        // import Django data
+        const rawData = {{ data|safe }};
+
+        // date formatter
+        var dateFormat = d3.timeFormat("%d-%b");
+
+        // unique dates
+        var groups = d3.map(rawData, function(d) { return dateFormat(new Date(d.date)); }).keys();
+
+        // unique exercise types
+        var subgroups = d3.map(rawData, function(d) { return d.type }).keys();
+
+        // group by unique day
+        var intData = d3.nest()
+            .key(function(d) { return dateFormat(new Date(d.date)); })
+            .entries(rawData);
+
+        // create a list of dicts
+        var data = intData.map((day) => {
+            // start with the date
+            var dict = {"date": day.key};
+
+            for (var j=0; j<subgroups.length; j++) {
+                dict[subgroups[j]] = 0;
+            }
+
+            // loop through each workout, add distance
+            for (var i=0; i<day.values.length; i++) {
+                dict[day.values[i].type] += day.values[i].distance; 
+            }
+
+            return dict;
+        });
+        
+        // stack data for visualization
+        var stackedData = d3.stack()
+            .keys(subgroups)
+            (data);
+
+        // set the dimensions of the canvas
+        var margin = { top: 20, right: 160, bottom: 35, left: 30 },
+            width = 960 - margin.left - margin.right,
+            height = 500 - margin.top - margin.bottom;
+
+        // set axis scales
+        var x = d3.scaleBand()
+            .rangeRound([0, width], .05)
+            .paddingInner(0.5)
+            .domain(groups)
+            .range([0, width]);
+        /*var x = d3.scaleTime()
+            .rangeRound([0, width], .05)
+            .domain(groups)
+            .range([0, width]);*/
+
+        var y = d3.scaleLinear()
+            // domain is height of highest stacked bar, rounded up to nearest multiple of 5
+            .domain([d3.max(stackedData, function(d) { return d3.max(d, function(d) {return Math.ceil(d[1] / 5) * 5; }); }), 0])
+            .range([0, height]);
+
+        // define the axes
+        var xAxis = d3.axisBottom(x);
+
+        var yAxis = d3.axisLeft(y)
+            .ticks(10);
+
+        // create colors and a color scale
+        var colors = ['#e41a1c', '#377eb8', '#4daf4a'];
+        var colorAxis = d3.scaleOrdinal()
+            .domain(subgroups)
+            .range(colors);
+        
+        // create the chart
+        var chart = d3.select(".chart")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+                .attr("transform",
+                    "translate(" + margin.left + "," + margin.top + ")");
+
+        // add axes
+        chart.append("g")
+            .attr("class", "x-axis")
+            .attr("transform", "translate(0," + height + ")")
+            .call(xAxis)
+            .selectAll("text")
+            .style("text-anchor", "middle");
+
+        chart.append("g")
+            .attr("class", "y-axis")
+            .call(yAxis)
+            .append("text")
+            .attr("transform", "rotate(-90)")
+            .attr("y", 5)
+            .attr("dy", ".71em")
+            .style("text-anchor", "end")
+            .text("Distance");
+
+        // Add bar chart
+        //  nested data binding creates a 'g' for each exercise type and 'rects'
+        //  for the volume that day. Adds tooltips to each rect, color codes by
+        //  type
+        chart.selectAll("g.exercise-type")
+            .data(stackedData)
+            .enter().append("g")
+            .attr("class", "exercise-type")
+            .attr("fill", function(d) { return colorAxis(d.key); })
+            .selectAll("rect")
+            .data(function(d) { return d; })
+            .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", function (d) { return x(dateFormat(new Date(d.data.date))); })
+                .attr("width", x.bandwidth())
+                .attr("y", function (d) { return y(d[1]); })
+                .attr("height", function (d) { return y(d[0]) - y(d[1]) })
+                .on("mouseover", function() { tooltip.style("display", null); })
+                .on("mouseout", function () { tooltip.style("display", "none"); })
+                .on("mousemove", function(d) {
+                    var xPosition = d3.mouse(this)[0] - 15;
+                    var yPosition = d3.mouse(this)[1] - 25;
+                    tooltip.attr("transform", "translate(" + xPosition + "," + yPosition + ")");
+                    tooltip.select("text").text((d[1] - d[0]) + " mi.");
+                });
+
+        // define and populate legend
+        var legend = chart.selectAll(".legend")
+            .data(subgroups)
+            .enter().append("g")
+            .attr("class", "legend")
+            .attr("transform", function (d, i) { return "translate(30," + i * 19 + ")"; });
+
+        legend.append("rect")
+            .attr("x", width - 18)
+            .attr("width", 18)
+            .attr("height", 18)
+            .style("fill", function (d) { return colorAxis(d); });
+
+        legend.append("text")
+            .attr("x", width + 5)
+            .attr("y", 9)
+            .attr("dy", ".35em")
+            .style("text-anchor", "start")
+            .text(function (d) { return d; });
+        
+        // define tooltip
+        var tooltip = chart.append("g")
+            .attr("class", "tooltip")
+            .style("display", "none");
+
+        tooltip.append("rect")
+            .attr("width", 40)
+            .attr("height", 20)
+            .attr("fill", "white")
+            .style("opacity", 0.5);
+        
+        tooltip.append("text")
+            .attr("x", 15)
+            .attr("dy", "1.2em")
+            .style("text-anchor", "middle")
+            .attr("font-size", "12px")
+            .attr("font-weight", "bold");
+    </script>
+{% endblock %}
